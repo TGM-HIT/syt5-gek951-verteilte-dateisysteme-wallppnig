@@ -2,6 +2,7 @@ from fastapi import FastAPI, File, UploadFile
 from minio import Minio
 from minio.error import S3Error
 from fastapi.responses import JSONResponse
+from fastapi.responses import StreamingResponse
 import io
 
 app = FastAPI()
@@ -34,7 +35,7 @@ async def upload_file(file: UploadFile = File(...)):
 async def get_file(filename: str):
     try:
         data = minio_client.get_object(BUCKET_NAME, filename)
-        return JSONResponse(content={"file": data.read().decode()})
+        return StreamingResponse(data, media_type="application/octet-stream")
     except S3Error as e:
         return JSONResponse(status_code=404, content={"message": f"File not found: {str(e)}"})
 
