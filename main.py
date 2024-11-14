@@ -1,26 +1,45 @@
+from fastapi import FastAPI, File, UploadFile
 from minio import Minio
-from dotenv import load_dotenv
-import os
+from minio.error import S3Error
+from fastapi.responses import JSONResponse
+import io
 
+app = FastAPI()
 
-load_dotenv()
-LOCAL_FILE_PATH = ""
-ACCESS_KEY = os.environ.get('ACCESS_KEY')
-SECRET_KEY = os.environ.get('SECRET_KEY')
-BUCKET_NAME = "bucket"
-MINIO_API_HOST = "http://localhost:9000"
-MINIO_CLIENT = Minio("localhost:9000", access_key=ACCESS_KEY, secret_key=SECRET_KEY, secure=False)
+# MinIO Client-Setup
+minio_client = Minio(
+    "localhost:9000",  # MinIO-Service-Adresse
+    access_key="minioadmin",
+    secret_key="minioadmin",
+    secure=False  # Setze True, wenn du HTTPS verwendest
+)
 
-def main():
-    found = MINIO_CLIENT.bucket_exists(BUCKET_NAME)
-    if not found:
-        print("ERROR: Bucket not found!!!")
-        return
+# Bucket erstellen, wenn noch nicht vorhanden
+# if not minio_client.bucket_exists("mybucket"):
+#     minio_client.make_bucket("mybucket")
 
-    print("Bucket found")
+@app.post("/upload/")
+async def upload_file(file: UploadFile = File(...)):
+    try:
+        file_contents = await file.read()
+        minio_client.put_object("mybucket", file.filename, io.BytesIO(file_contents), len(file_contents))
+        file_url = f"http://minio-service:9000/mybucket/{file.filename}"
+        return {"message": "File uploaded successfully", "file_url": file_url}
+    except S3Error as e:
+        return JSONResponse(status_code=500, content={"message": f"Error: {str(e)}"})
 
-    MINIO_CLIENT.fput_object(BUCKET_NAME, "requirements.txt", LOCAL_FILE_PATH)
-    print("It is successfully uploaded to bucket")
+@app.get("/file/{filename}")
+async def get_file(filename: str):
+    try:
+        data = minio_client.get_object("mybucket", filename)
+        return JSONResponse(content={"file": data.read().decode()})
+    except S3Error as e:
+        return JSONResponse(status_code=404, content={"message": f"File not found: {str(e)}"})
 
-
-main()
+@app.delete("/file/{filename}")
+async def delete_file(filename: str):
+    try:
+        minio_client.remove_object("mybucket", filename)
+        return {"message": f"File {filename} deleted successfully"}
+    except S3Error as e:
+        return JSONResponse(status_code=404, content={"message": f"File not found: {str(e)}"})
